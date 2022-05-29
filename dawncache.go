@@ -2,6 +2,7 @@ package DawnCache
 
 import (
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -19,6 +20,7 @@ type Group struct {
 	name      string // 一个组的命名空间，用于区分不同的缓存，如学生姓名、成绩可以放到不同的缓存中去
 	getter    Getter // 当查找数据未命中时，调用该函数获取值
 	mainCache cache  // 底层缓存
+	peers     PeerPicker
 }
 
 var (
@@ -62,11 +64,40 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.load(key)
 }
 
+// RegisterPeers 注册 PeerPicker
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		// RegisterPeers 不允许调用超过1次
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
+
 // load 从别处加载数据
 func (g *Group) load(key string) (ByteView, error) {
-	// 暂时全部调用回调函数加载key对应的value
-	// 从远程调用之后实现
+	if g.peers != nil {
+		// peers 不为空，可以从远程获取数据
+		if peer, ok := g.peers.PickPeer(key); ok {
+			// 从远程获取数据
+			view, err := g.getFromPeer(peer, key)
+			if err != nil {
+				log.Println("[GeeCache] Failed to get from peer", err)
+				return ByteView{}, err
+			}
+			return view, nil
+		}
+	}
+	// 本地通过回调函数获取数据
 	return g.getLocally(key)
+}
+
+// getFromPeer 从 peer 处获取数据
+func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	data, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: data}, nil
 }
 
 // getLocally 从本地，即调用回调函数获取 value
