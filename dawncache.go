@@ -1,6 +1,7 @@
 package DawnCache
 
 import (
+	"DawnCache/singleflight"
 	"errors"
 	"log"
 	"sync"
@@ -21,6 +22,7 @@ type Group struct {
 	getter    Getter // 当查找数据未命中时，调用该函数获取值
 	mainCache cache  // 底层缓存
 	peers     PeerPicker
+	loader    *singleflight.Group
 }
 
 var (
@@ -39,6 +41,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader:    new(singleflight.Group),
 	}
 	groups[name] = g // 添加到 map 中
 	return g
@@ -75,20 +78,26 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 
 // load 从别处加载数据
 func (g *Group) load(key string) (ByteView, error) {
-	if g.peers != nil {
-		// peers 不为空，可以从远程获取数据
-		if peer, ok := g.peers.PickPeer(key); ok {
-			// 从远程获取数据
-			view, err := g.getFromPeer(peer, key)
-			if err != nil {
-				log.Println("[GeeCache] Failed to get from peer", err)
-				return ByteView{}, err
+	view, err := g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			// peers 不为空，可以从远程获取数据
+			if peer, ok := g.peers.PickPeer(key); ok {
+				// 从远程获取数据
+				view, err := g.getFromPeer(peer, key)
+				if err != nil {
+					log.Println("[GeeCache] Failed to get from peer", err)
+					return ByteView{}, err
+				}
+				return view, nil
 			}
-			return view, nil
 		}
+		// 本地通过回调函数获取数据
+		return g.getLocally(key)
+	})
+	if err != nil {
+		return ByteView{}, err
 	}
-	// 本地通过回调函数获取数据
-	return g.getLocally(key)
+	return view.(ByteView), nil
 }
 
 // getFromPeer 从 peer 处获取数据
