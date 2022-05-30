@@ -1,6 +1,7 @@
 package DawnCache
 
 import (
+	pb "DawnCache/dawncachepb"
 	"DawnCache/singleflight"
 	"errors"
 	"log"
@@ -102,11 +103,16 @@ func (g *Group) load(key string) (ByteView, error) {
 
 // getFromPeer 从 peer 处获取数据
 func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	data, err := peer.Get(g.name, key)
+	req := &pb.Request{
+		Group: g.name,
+		Key:   key,
+	}
+	res := &pb.Response{}
+	err := peer.Get(req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: data}, nil
+	return ByteView{b: res.Value}, nil
 }
 
 // getLocally 从本地，即调用回调函数获取 value

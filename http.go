@@ -1,11 +1,14 @@
 package DawnCache
 
 import (
+	pb "DawnCache/dawncachepb"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io/ioutil"
 	"log"
 	"net/http"
+	url2 "net/url"
 	"strings"
 	"sync"
 )
@@ -68,8 +71,13 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 响应客户端
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()}) // 编码
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(view.ByteSlice())
+	w.Write(body)
 }
 
 // Set 添加节点
@@ -104,28 +112,32 @@ type HTTPGetter struct {
 }
 
 // Get 实现了 PeerGetter 接口，用于远程获取源数据
-func (h *HTTPGetter) Get(groupName string, key string) ([]byte, error) {
-	url := fmt.Sprintf("%s%s/%s", h.basePath, groupName, key)
+func (h *HTTPGetter) Get(in *pb.Request, out *pb.Response) error {
+	url := fmt.Sprintf("%s%s/%s", h.basePath, url2.QueryEscape(in.GetGroup()), url2.QueryEscape(in.GetKey()))
 
 	res, err := http.Get(url)
 	if err != nil {
 		// 发送请求失败
-		return nil, err
+		return err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		// 状态码不是 200
-		return nil, fmt.Errorf("server status code: %v", res.StatusCode)
+		return fmt.Errorf("server status code: %v", res.StatusCode)
 	}
 
 	data, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		// 读取数据失败
-		return nil, errors.New("read response body failed")
+		return errors.New("read response body failed")
 	}
 
-	return data, nil
+	if err = proto.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+
+	return nil
 }
 
 var _ PeerGetter = (*HTTPGetter)(nil) // 检查实现 PeerGetter 接口
