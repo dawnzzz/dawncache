@@ -8,7 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	url2 "net/url"
+	"net/url"
 	"strings"
 	"sync"
 )
@@ -113,7 +113,7 @@ type HTTPGetter struct {
 
 // Get 实现了 PeerGetter 接口，用于远程获取源数据
 func (h *HTTPGetter) Get(in *pb.Request, out *pb.Response) error {
-	url := fmt.Sprintf("%s%s/%s", h.basePath, url2.QueryEscape(in.GetGroup()), url2.QueryEscape(in.GetKey()))
+	url := fmt.Sprintf("%s%s/%s", h.basePath, url.QueryEscape(in.GetGroup()), url.QueryEscape(in.GetKey()))
 
 	res, err := http.Get(url)
 	if err != nil {
